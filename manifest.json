@@ -1,0 +1,41 @@
+{
+    "display_information": {
+        "name": "Grook"
+    },
+    "features": {
+        "bot_user": {
+            "display_name": "Grook",
+            "always_online": false
+        }
+    },
+    "oauth_config": {
+        "scopes": {
+            "bot": [
+                "app_mentions:read",
+                "channels:history",
+                "chat:write",
+                "groups:history",
+                "im:history",
+                "mpim:history",
+                "users:read",
+                "mpim:write",
+                "groups:write",
+                "im:write",
+                "channels:write.invites"
+            ]
+        }
+    },
+    "settings": {
+        "event_subscriptions": {
+            "bot_events": [
+                "message.channels",
+                "message.groups",
+                "message.im",
+                "message.mpim"
+            ]
+        },
+        "org_deploy_enabled": false,
+        "socket_mode_enabled": false,
+        "token_rotation_enabled": false
+    }
+}

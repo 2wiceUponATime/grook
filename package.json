@@ -1,0 +1,12 @@
+{
+	"type": "module",
+	"dependencies": {
+		"@langchain/groq": "^1.0.0",
+		"@slack/bolt": "^4.6.0",
+		"langchain": "^1.0.3",
+		"zod": "^4.1.12"
+	},
+	"devDependencies": {
+		"@types/node": "^24.10.0"
+	}
+}
