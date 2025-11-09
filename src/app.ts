@@ -63,6 +63,7 @@ async function start(env: Record<string, any>) {
         const say = data.say;
         for (const line of text.split("\n")) {
             if (!line) continue;
+            console.log("Sending message:", line);
             await say({
                 channel: message.channel,
                 thread_ts,
