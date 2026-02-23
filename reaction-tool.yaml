@@ -1,0 +1,17 @@
+# Reaction tool configuration
+version: 1
+# Force saving reactions locally instead of forwarding to external chat integration
+force_save: true
+# Destinations to persist reactions: local archive, (optional) remote
+destinations:
+  - type: local_archive
+    path: ./archives/reactions
+# Disable Slack forwarding to avoid losing saves to Slack-only storage
+slack_forwarding: false
+# When enabled, attempt to save even if external integrations fail
+save_on_integration_fail: true
+# Retention in days for local saved reactions (0 = forever)
+retention_days: 0
+# Optional: format choices: json, yaml
+format: json
+# Notes: place this file at project root and ensure the reaction tool reads it.

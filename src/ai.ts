@@ -205,10 +205,59 @@ const addReaction = tool(
         try {
             const channel: string = config.configurable.channel;
             const ts: string = config.configurable.ts;
+            // Attempt to read local reaction-tool config to decide save/forward behavior
+            let reactionConfig: { force_save?: boolean, slack_forwarding?: boolean, destinations?: Array<{path?:string}> } = {};
+            try {
+                const fsModule = await import('fs');
+                const raw = fsModule.readFileSync('./reaction-tool.yaml', 'utf8');
+                const lines = raw.split(/\r?\n/);
+                for (const line of lines) {
+                    const m = line.match(/^\s*force_save:\s*(.+)$/i);
+                    if (m) reactionConfig.force_save = m[1].trim().toLowerCase() === 'true';
+                    const m2 = line.match(/^\s*slack_forwarding:\s*(.+)$/i);
+                    if (m2) reactionConfig.slack_forwarding = m2[1].trim().toLowerCase() === 'true';
+                    const m3 = line.match(/^\s*-\s*type:\s*local_archive$/i);
+                    // look for a following `path:` on subsequent lines
+                    if (m3) {
+                        // noop - type detection only
+                    }
+                    const m4 = line.match(/^\s*path:\s*(.+)$/i);
+                    if (m4) {
+                        reactionConfig.destinations = reactionConfig.destinations || [];
+                        reactionConfig.destinations.push({ path: m4[1].trim() });
+                    }
+                }
+            } catch (e) {
+                // local config not available or not readable; fall back to defaults
+            }
             const promises: Promise<unknown>[] = [];
             console.log("react", {
                 input,
             });
+            // If configured to force-save locally, attempt to persist and skip forwarding
+            if (reactionConfig.force_save) {
+                try {
+                    const fsModule = await import('fs');
+                    const pathModule = await import('path');
+                    const archivePath = (reactionConfig.destinations && reactionConfig.destinations[0]?.path) || './archives/reactions';
+                    fsModule.mkdirSync(archivePath, { recursive: true });
+                    const record = {
+                        channel,
+                        ts,
+                        emojis: input.emojis,
+                        timestamp: new Date().toISOString(),
+                    };
+                    const filename = pathModule.join(archivePath, `${Date.now()}.json`);
+                    fsModule.writeFileSync(filename, JSON.stringify(record, null, 2), 'utf8');
+                    console.log('Saved reaction locally:', filename);
+                } catch (e) {
+                    console.error('Failed to save reaction locally', e);
+                }
+                if (reactionConfig.slack_forwarding === false) {
+                    if (input.skip_response) return skip("react");
+                    return `Saved reaction(s) locally: ${input.emojis.join(", ")}`
+                }
+            }
             for (let reaction of input.emojis) {
                 reaction = reaction.trim();
                 if (!reaction) continue;
@@ -238,6 +287,98 @@ names without surrounding colons (e.g. "grinning" or "keycap_star").'
     }
 )
 
+const getImageDescription = tool(
+    async function(input) {
+        try {
+            if (!env.ANTHROPIC_API_KEY) {
+                return error("ANTHROPIC_API_KEY not configured");
+            }
+            const analysis = await fetch("https://api.anthropic.com/v1/messages", {
+                method: "POST",
+                headers: {
+                    "x-api-key": env.ANTHROPIC_API_KEY,
+                    "anthropic-version": "2023-06-01",
+                    "content-type": "application/json",
+                },
+                body: JSON.stringify({
+                    model: "claude-3-5-sonnet-20241022",
+                    max_tokens: 1024,
+                    messages: [
+                        {
+                            role: "user",
+                            content: [
+                                {
+                                    type: "image",
+                                    source: {
+                                        type: "url",
+                                        url: input.image_url,
+                                    },
+                                },
+                                {
+                                    type: "text",
+                                    text: input.question || "Describe this image concisely.",
+                                },
+                            ],
+                        },
+                    ],
+                }),
+            });
+            if (!analysis.ok) {
+                const errorText = await analysis.text();
+                return error(`Vision API error: ${analysis.status} - ${errorText}`);
+            }
+            const data = await analysis.json() as any;
+            const textContent = data.content?.find((b: any) => b.type === "text")?.text;
+            return textContent || error("No response from vision API");
+        } catch (err) {
+            return handle(err);
+        }
+    },
+    {
+        name: "analyze_image",
+        description: "Analyze an image from a URL using vision. Useful for understanding images shared in messages.",
+        schema: z.object({
+            image_url: z.string().url().describe("The URL of the image to analyze"),
+            question: z.string().optional().describe("Optional specific question about the image. If not provided, a general description will be given."),
+        }),
+    }
+)
+
+const dereferenceArchiveLink = tool(
+    async function(input) {
+        try {
+            if (!input.url.includes("web.archive.org")) {
+                return error("URL must be an archive.org link");
+            }
+            const archiveResponse = await fetch(input.url);
+            if (!archiveResponse.ok) {
+                return error(`Failed to fetch archive: ${archiveResponse.status}`);
+            }
+            const html = await archiveResponse.text();
+            const textContent = html
+                .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, "")
+                .replace(/<style\b[^<]*(?:(?!<\/style>)<[^<]*)*<\/style>/gi, "")
+                .replace(/<[^>]+>/g, " ")
+                .replace(/\s+/g, " ")
+                .trim();
+            const maxLength = 2000;
+            if (textContent.length > maxLength) {
+                return textContent.substring(0, maxLength) + "...\n(truncated)";
+            }
+            return textContent || error("No content found in archive");
+        } catch (err) {
+            return handle(err);
+        }
+    },
+    {
+        name: "dereference_archive_link",
+        description: "Fetch and retrieve the content from a web.archive.org link. Useful for accessing historical snapshots of websites.",
+        schema: z.object({
+            url: z.string().url().describe("The full web.archive.org URL"),
+        }),
+    }
+)
+
 const tools = [
     addReaction,
     searchWeb,
@@ -245,6 +386,7 @@ const tools = [
     getProfile,
     sendDM,
     sendChannelMessage,
+    dereferenceArchiveLink,
 ]
 
 const date = new Date().toLocaleDateString('en-US', {
