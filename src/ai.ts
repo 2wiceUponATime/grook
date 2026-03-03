@@ -4,9 +4,10 @@ import { ConversationsInfoResponse, UsersInfoResponse } from "@slack/web-api";
 import { env } from "cloudflare:workers"
 import { ChatGroq } from "@langchain/groq";
 import z from "zod";
-import { assertString, botId } from "./core.js";
-import basePrompt from "./prompt/prompt.md";
-import safeguardPrompt from "./prompt/safeguard.md";
+import { assertString, botId, images } from "./core.js";
+import basePrompt from "./prompt/from-gork/prompt.md";
+import safeguardPrompt from "./prompt/from-gork/safeguard.md";
+import visionPrompt from "./prompt/vision.md";
 import Exa from "exa-js"
 import { client } from "./core.js";
 
@@ -26,6 +27,11 @@ const llm = new ChatGroq({
 const llmSafeguard = new ChatGroq({
     model: env.GROQ_SAFEGUARD_MODEL,
     temperature: 0,
+});
+
+const llmVision = new ChatGroq({
+    model: env.GROQ_VISION_MODEL,
+    temperature: 0.3,
 });
 
 function error(message: string, ...data: unknown[]): string {
@@ -90,7 +96,7 @@ ${result.highlights.join("\n\n")}`
             query: z.string().nonempty()
         })
     }
-)
+);
 
 const skipTool = tool(
     function() {
@@ -167,7 +173,7 @@ const sendDM = tool(
             skip_response: SKIP,
         }),
     }
-)
+);
 
 const sendChannelMessage = tool(
     async function(input, config) {
@@ -198,7 +204,7 @@ const sendChannelMessage = tool(
             skip_response: SKIP,
         }),
     }
-)
+);
 
 const addReaction = tool(
     async function(input, config) {
@@ -236,6 +242,50 @@ names without surrounding colons (e.g. "grinning" or "keycap_star").'
             skip_response: SKIP,
         })
     }
+);
+
+const getImageInfo = tool(
+    async function(input) {
+        try {
+            const url = images[input.id];
+            if (!url) {
+                return error("Image does not exist");
+            }
+            const result = await agentVision.invoke({
+                messages: [new HumanMessage([
+                    {
+                        type: "image_url",
+                        image_url: {
+                            url,
+                        }
+                    },
+                    {
+                        type: "text",
+                        text: input.prompt,
+                    },
+                ])]
+            });
+            const lastMessage = result.messages.at(-1);
+            if (!(lastMessage instanceof AIMessage)) {
+                throw new TypeError(`Expected AIMessage, got ${lastMessage}`);
+            }
+            const response = lastMessage.content;
+            assertString(response);
+            return response;
+        } catch(err) {
+            return handle(err);
+        }
+    },
+    {
+        name: "get_image_info",
+        description: "Ask a vision LLM about an image by ID",
+        schema: z.object({
+            id: z.string().describe("The image ID, such as \
+'e8b552cb-be36-48c7-8df9-67fad2cbf2bf'."),
+            prompt: z.string().describe("The prompt, such as 'describe this \
+image' or 'what color is the subject's shirt?'"),
+        })
+    }
 )
 
 const tools = [
@@ -245,6 +295,7 @@ const tools = [
     getProfile,
     sendDM,
     sendChannelMessage,
+    getImageInfo,
 ]
 
 const date = new Date().toLocaleDateString('en-US', {
@@ -297,6 +348,12 @@ const agentSafeguard = createAgent({
     systemPrompt: safeguardPrompt,
     stateSchema,
 });
+
+const agentVision = createAgent({
+    model: llmVision,
+    systemPrompt: visionPrompt,
+    stateSchema,
+})
 
 async function safeguard(message: string): Promise<string> {
     const result = await agentSafeguard.invoke({ messages: [new HumanMessage(message)] });

@@ -6,6 +6,7 @@ export let receiver: AwsLambdaReceiver
 export let app: App;
 export let botId: string;
 export const client = new WebClient(env.SLACK_BOT_TOKEN);
+export let images: Record<string, string> = {};
 
 export async function init() {
     receiver = new AwsLambdaReceiver({

@@ -1,6 +1,6 @@
 import type { AwsEventV2, AwsResponse } from "@slack/bolt/dist/receivers/AwsLambdaReceiver.js";
 import { invoke } from "./ai.js";
-import { app, botId, init, logErrors, receiver } from "./core.js";
+import { app, botId, images, init, logErrors, receiver } from "./core.js";
 import { AIMessage, BaseMessage, ContentBlock, HumanMessage } from "langchain";
 import { env } from "cloudflare:workers";
 import { client } from "./core.js";
@@ -78,30 +78,30 @@ async function start() {
         }
         async function convertReply(reply: Reply): Promise<BaseMessage> {
             const filePromises: Promise<ContentBlock>[] = [];
-            // if ("files" in reply && reply.files) {
-            //     for (const file of reply.files) {
-            //         if (file.mimetype.startsWith("image/")) {
-            //             const data = fetch(file.url_private_download, {
-            //                 headers: {
-            //                     "Authorization": "Bearer " + env.SLACK_BOT_TOKEN,
-            //                 }
-            //             }).then(async result => {
-            //                 if (!result.ok) console.error(result.statusText);
-            //                 const buffer = await result.arrayBuffer();
-            //                 const base64 = btoa(
-            //                     String.fromCharCode(...new Uint8Array(buffer))
-            //                 );
-            //                 return {
-            //                     type: "image_url",
-            //                     image_url: {
-            //                         url: `data:${file.mimetype};base64,${base64}`,
-            //                     }
-            //                 }
-            //             });
-            //             filePromises.push(data);
-            //         }
-            //     }
-            // }
+            if ("files" in reply && reply.files) {
+                for (const file of reply.files) {
+                    if (file.mimetype.startsWith("image/")) {
+                        const data = fetch(file.url_private_download, {
+                            headers: {
+                                "Authorization": "Bearer " + env.SLACK_BOT_TOKEN,
+                            }
+                        }).then(async result => {
+                            if (!result.ok) console.error(result.statusText);
+                            const buffer = await result.arrayBuffer();
+                            const base64 = btoa(
+                                String.fromCharCode(...new Uint8Array(buffer))
+                            );
+                            const id = crypto.randomUUID();
+                            images[id] = `data:${file.mimetype};base64,${base64}`
+                            return {
+                                type: "text",
+                                text: `Attached image: ID ${id}`
+                            }
+                        });
+                        filePromises.push(data);
+                    }
+                }
+            }
             if (filePromises.length && reply.ts == message.ts) {
                 console.log("Got attached images", await Promise.all(filePromises));
             }
