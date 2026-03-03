@@ -89,7 +89,7 @@ async function start() {
                             if (!result.ok) console.error(result.statusText);
                             const buffer = await result.arrayBuffer();
                             const base64 = btoa(
-                                String.fromCharCode(...new Uint8Array(buffer))
+                                String.fromCharCode.apply(null, new Uint8Array(buffer))
                             );
                             const id = crypto.randomUUID();
                             images[id] = `data:${file.mimetype};base64,${base64}`
@@ -107,7 +107,7 @@ async function start() {
             }
             if (reply.user == botId) {
                 return new AIMessage(reply.text ?? "");
-            }[]
+            }
             const files = filePromises.length ? await Promise.all(filePromises) : [];
             return new HumanMessage({
                 content: [{
