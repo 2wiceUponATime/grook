@@ -88,17 +88,9 @@ async function start() {
                         }).then(async result => {
                             if (!result.ok) console.error(result.statusText);
                             const buffer = await result.arrayBuffer();
-                            const url = await new Promise(resolve => {
-                                const reader = new FileReader();
-                                reader.onload = () => {
-                                    resolve(reader.result as string);
-                                };
-                                reader.readAsDataURL(new Blob([buffer], {
-                                    type: file.mimetype
-                                }));
-                            }) as string;
+                            const base64 = Buffer.from(buffer).toString("base64");
                             const id = crypto.randomUUID();
-                            images[id] = url;
+                            images[id] = `data:${file.mimetype};base64,${base64}`
                             return {
                                 type: "text",
                                 text: `Attached image: ID ${id}`
