@@ -1,25 +1,20 @@
-import type { AwsEventV2, AwsResponse } from "@slack/bolt/dist/receivers/AwsLambdaReceiver.js";
+import { SlackApp } from "slack-cloudflare-workers";
 import { invoke } from "./ai.js";
-import { app, botId, images, init, logErrors, receiver } from "./core.js";
+import { botId, client, images, init, logErrors } from "./core.js";
 import { AIMessage, BaseMessage, ContentBlock, HumanMessage } from "langchain";
 import { env } from "cloudflare:workers";
-import { client } from "./core.js";
 import type { ConversationsRepliesResponse, GenericMessageEvent } from "@slack/web-api";
 
 type Reply = ConversationsRepliesResponse["messages"][number];
 
-async function start() {
-    const ALLOWED_CHANNELS = new Set(env.ALLOWED_CHANNELS.split(","))
+const ALLOWED_CHANNELS = new Set(env.ALLOWED_CHANNELS.split(","));
+
+async function start(app: SlackApp<any>) {
     await init();
 
-    app.use(async function(args) {
-        console.log("Event", args.body);
-        return args.next();
-    })
-
-    app.message(logErrors(async function(data) {
-        const message = data.message;
-        const say = data.say;
+    app.anyMessage(logErrors(async function(req) {
+        const message = req.payload;
+        console.log("Event", message);
         if (!(message.channel.startsWith("D") || ALLOWED_CHANNELS.has(message.channel))) {
             console.log("Bad channel:", message.channel);
             if (message.subtype) return;
@@ -35,7 +30,7 @@ async function start() {
         }
         async function getReplies() {
             let ts = message.ts;
-            if ("thread_ts" in message && message.thread_ts) {
+            if (message.thread_ts) {
                 ts = message.thread_ts;
             }
             const repliesData = await client.conversations.replies({
@@ -49,9 +44,6 @@ async function start() {
         switch (message.subtype) {
             case "file_share":
             case undefined:
-                break;
-            case "channel_join":
-                thread_ts = undefined;
                 break;
             default:
                 console.log(`Ignoring ${message.subtype}`);
@@ -142,7 +134,7 @@ async function start() {
         for (const line of text.split("\n")) {
             if (!line) continue;
             console.log("Sending message:", line);
-            await say({
+            await client.chat.postMessage({
                 channel: message.channel,
                 thread_ts,
                 text: line,
@@ -151,39 +143,17 @@ async function start() {
     }));
 }
 
-async function requestToAws(request: Request): Promise<AwsEventV2> {
-    const url = new URL(request.url);
-    const headers: Record<string, string> = {};
-    request.headers.forEach((v, k) => headers[k] = v);
-    return {
-        version: "2.0",
-        routeKey: "$default",
-        rawPath: url.pathname,
-        rawQueryString: url.search.slice(1),
-        headers,
-        requestContext: { http: { method: request.method, path: url.pathname } },
-        body: await request.text() || undefined,
-        isBase64Encoded: false,
-    };
-}
-
-async function awsToResponse(response: AwsResponse): Promise<Response> {
-    const headers = new Headers();
-    for (const [key, value] of Object.entries(response.headers ?? {})) {
-        headers.set(key, value.toString());
-    }
-    return new Response(response.body, {
-        headers,
-        status: response.statusCode,
-    })
-}
-
 export default {
-    async fetch(request: Request, env: Record<string, any>, _ctx: any) {
+    async fetch(request: Request, _env: unknown, ctx: ExecutionContext) {
         const url = new URL(request.url);
         console.log(request.method, url.pathname);
-        await start();
-        const handler = await receiver.start();
-        return awsToResponse(await handler(await requestToAws(request), {}, () => {}));
+        const app = new SlackApp({
+            env: {
+                SLACK_BOT_TOKEN: env.SLACK_BOT_TOKEN as string,
+                SLACK_SIGNING_SECRET: env.SLACK_SIGNING_SECRET as string,
+            },
+        });
+        await start(app);
+        return await app.run(request, ctx);
     }
 };
