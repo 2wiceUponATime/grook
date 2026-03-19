@@ -1,13 +1,23 @@
-import { SlackApp } from "slack-cloudflare-workers";
+import { MessageEventRequest, SlackApp } from "slack-cloudflare-workers";
 import { invoke } from "./ai.js";
 import { botId, client, images, init, logErrors } from "./core.js";
 import { AIMessage, BaseMessage, ContentBlock, HumanMessage } from "langchain";
 import { env } from "cloudflare:workers";
 import type { ConversationsRepliesResponse, GenericMessageEvent } from "@slack/web-api";
+import { MessageElement } from "@slack/web-api/dist/types/response/ConversationsHistoryResponse.js";
 
 type Reply = ConversationsRepliesResponse["messages"][number];
+type Args<F> = F extends (...args: infer T) => any ? T : never;
+type AppArgs<K extends keyof SlackApp<any>> = Args<SlackApp<any>[K]>
+type MessageData = Args<AppArgs<"anyMessage">[0]>[0]
 
 const ALLOWED_CHANNELS = new Set(env.ALLOWED_CHANNELS.split(","));
+
+function isIgnored(message: MessageData["payload"] | MessageElement) {
+    if (message.subtype && message.subtype !== "file_share") return true;
+    if ("bot_id" in message) return true;
+    return false;
+}
 
 async function start(app: SlackApp<any>) {
     await init();
@@ -41,18 +51,7 @@ async function start(app: SlackApp<any>) {
         }
 
         let thread_ts: string | undefined = message.ts;
-        switch (message.subtype) {
-            case "file_share":
-            case undefined:
-                break;
-            default:
-                console.log(`Ignoring ${message.subtype}`);
-                return;
-        }
-        if ("bot_id" in message) {
-            console.log("Ignoring bot message");
-            return;
-        }
+        if (isIgnored(message)) return;
         const replies = await getReplies();
         if (replies.at(-1).user == botId) {
             console.log("Canceled - last message from bot");
@@ -123,7 +122,7 @@ async function start(app: SlackApp<any>) {
             ts: message.ts,
         });
         console.log("AI response:", text);
-        const newReplies = await getReplies();
+        const newReplies = (await getReplies()).filter(msg => !isIgnored(msg));
         if (!text.trim()) {
             console.log("Canceled - empty message");
         }
