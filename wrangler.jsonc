@@ -8,7 +8,7 @@
         "GROQ_VISION_MODEL": "meta-llama/llama-4-scout-17b-16e-instruct",
         "GROQ_SAFEGUARD_MODEL": "openai/gpt-oss-20b",
         "CREATOR_ID": "U09EFB5G6TS",
-        "ALLOWED_CHANNELS": "C09REGCDEA2,C0A21M6CWLU,C0ABQJZ5C3Z,C0ACEDARMM3",
+        "ALLOWED_CHANNELS": "C09REGCDEA2,C0A21M6CWLU,C0ABQJZ5C3Z,C0ACEDARMM3,C09DP1NM3PO",
     },
     "rules": [
         {
